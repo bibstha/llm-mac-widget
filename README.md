@@ -1,4 +1,4 @@
-# zai_token_widget
+# llm-mac-widget
 
 Menu bar app for macOS that shows:
 
@@ -19,8 +19,8 @@ Your **Z.AI API key** is **stored in the macOS login keychain** when you save it
 ## Run
 
 ```bash
-git clone https://github.com/bibstha/zai_token_widget.git
-cd zai_token_widget
+git clone https://github.com/bibstha/llm-mac-widget.git
+cd llm-mac-widget
 ./run.sh
 ```
 
