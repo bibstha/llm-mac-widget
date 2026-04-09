@@ -2,6 +2,8 @@
 
 Menu bar app for macOS that shows **Z.AI** GLM coding plan quota (remaining **%** from the [usage API](https://api.z.ai)).
 
+Your Z.AI API key is **stored in the macOS login keychain** when you save it in Preferences (generic password for this app — not in files, not in git).
+
 ![Menu bar: Z.ai 96% and quota menu](screenshot.png)
 
 ## Requirements
@@ -30,9 +32,9 @@ open ZaiTokenWidget.app
 ## API key
 
 1. Create or copy a key from [Z.AI API keys](https://z.ai/manage-apikey/apikey-list).
-2. **Preferences…** (⌘,) from the menu bar item and paste it — it is stored in the **login keychain**.
+2. **Preferences…** (⌘,) from the menu bar item and paste it. It is saved to the **login keychain** (you can inspect or delete it in **Keychain Access** if needed).
 
-Or set **`ZAI_API_KEY`** or **`GLM_API_KEY`** in your environment before launch.
+Or set **`ZAI_API_KEY`** or **`GLM_API_KEY`** in your environment instead (not stored in the keychain).
 
 ## Behaviour
 
