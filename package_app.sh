@@ -2,11 +2,11 @@
 set -e
 cd "$(dirname "$0")"
 swift build -c release
-APP="ZaiTokenWidget.app"
-BIN=".build/release/ZaiTokenWidget"
+APP="LlmTokenWidget.app"
+BIN=".build/release/LlmTokenWidget"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS"
 cp "$BIN" "$APP/Contents/MacOS/"
 cp Support/Info.plist "$APP/Contents/Info.plist"
-chmod +x "$APP/Contents/MacOS/ZaiTokenWidget"
+chmod +x "$APP/Contents/MacOS/LlmTokenWidget"
 echo "Built $APP — run: open \"$APP\""

@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 @main
-struct ZaiTokenWidgetApp: App {
+struct LlmTokenWidgetApp: App {
     @StateObject private var model = QuotaModel()
 
     var body: some Scene {

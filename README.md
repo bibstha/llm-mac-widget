@@ -24,14 +24,14 @@ cd llm-mac-widget
 ./run.sh
 ```
 
-That builds a release binary, packages `ZaiTokenWidget.app`, and opens it. The item appears on the **right** side of the menu bar.
+That builds a release binary, packages `LlmTokenWidget.app`, and opens it. The item appears on the **right** side of the menu bar.
 
 **Manual build:**
 
 ```bash
 swift build -c release
 ./package_app.sh
-open ZaiTokenWidget.app
+open LlmTokenWidget.app
 ```
 
 ## Credentials

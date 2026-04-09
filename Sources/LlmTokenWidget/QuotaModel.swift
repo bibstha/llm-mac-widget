@@ -27,8 +27,8 @@ final class QuotaModel: ObservableObject {
         if isatty(STDIN_FILENO) != 0 {
             let cwd = FileManager.default.currentDirectoryPath
             fputs(
-                "\nZaiTokenWidget: started from Terminal — do not Ctrl+C if you want the menu item to stay. "
-                    + "Prefer: open \"\(cwd)/ZaiTokenWidget.app\"\n\n",
+                "\nLlmTokenWidget: started from Terminal — do not Ctrl+C if you want the menu item to stay. "
+                    + "Prefer: open \"\(cwd)/LlmTokenWidget.app\"\n\n",
                 stderr
             )
         }

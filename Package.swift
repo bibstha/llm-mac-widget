@@ -2,12 +2,12 @@
 import PackageDescription
 
 let package = Package(
-    name: "ZaiTokenWidget",
+    name: "LlmTokenWidget",
     platforms: [.macOS(.v14)],
     targets: [
         .executableTarget(
-            name: "ZaiTokenWidget",
-            path: "Sources/ZaiTokenWidget"
+            name: "LlmTokenWidget",
+            path: "Sources/LlmTokenWidget"
         )
     ]
 )
