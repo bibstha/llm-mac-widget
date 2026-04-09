@@ -4,7 +4,7 @@ Menu bar app for macOS that shows **Z.AI** GLM coding plan quota (remaining **%*
 
 Your Z.AI API key is **stored in the macOS login keychain** when you save it in Preferences (generic password for this app — not in files, not in git).
 
-![Menu bar: Z.ai 96% and quota menu](screenshot.png)
+![Menu bar: Z.ai quota and menu](menubar-screenshot.png)
 
 ## Requirements
 
