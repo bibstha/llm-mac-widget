@@ -8,9 +8,9 @@ final class QuotaModel: ObservableObject {
     /// Seconds between automatic quota fetches (also shown in the menu).
     static let autoRefreshIntervalSeconds: TimeInterval = 300
 
-    /// Menu bar label, e.g. "Z.ai 96%"
-    @Published private(set) var barTitle: String = "Z.ai"
-    @Published private(set) var barTooltip: String = "Z.AI token quota"
+    /// Menu bar label, e.g. "Z:99% CC:85%"
+    @Published private(set) var barTitle: String = "Z CC"
+    @Published private(set) var barTooltip: String = "Z.AI + Claude Code quota"
     /// Lines shown at the top of the menu (numbers / windows).
     @Published private(set) var quotaMenuLines: [String] = ["Open Preferences to set your API key."]
     /// Countdown until the next automatic fetch, e.g. "Auto refresh in 4:32 (272s)".
@@ -70,34 +70,81 @@ final class QuotaModel: ObservableObject {
             scheduleNextAutoRefresh()
         }
 
-        let key = resolvedAPIKey()
-        guard let key, !key.isEmpty else {
-            barTitle = "Z.ai —"
-            barTooltip = "Set your API key in Preferences (or ZAI_API_KEY / GLM_API_KEY)."
-            quotaMenuLines = ["No API key — open Preferences…"]
-            return
-        }
-
-        barTitle = "Z.ai …"
+        barTitle = "Z:… CC:…"
         barTooltip = "Loading…"
         quotaMenuLines = ["Loading quota…"]
 
+        async let zBlock = fetchZBlock()
+        async let ccBlock = fetchCCBlock()
+        let (z, cc) = await (zBlock, ccBlock)
+
+        barTitle = "\(z.barFragment) \(cc.barFragment)"
+        barTooltip = [z.tooltip, cc.tooltip].filter { !$0.isEmpty }.joined(separator: "\n\n")
+        quotaMenuLines = z.menuLines + cc.menuLines
+    }
+
+    /// Z.AI quota (GLM API key).
+    private func fetchZBlock() async -> (barFragment: String, tooltip: String, menuLines: [String]) {
+        guard let key = resolvedAPIKey(), !key.isEmpty else {
+            return (
+                "Z:—",
+                "Z.AI: set API key in Preferences (or ZAI_API_KEY / GLM_API_KEY).",
+                ["Z.AI — no API key"]
+            )
+        }
         do {
             let summary = try await client.fetchQuota(apiKey: key)
             guard let primary = summary.primary else {
-                barTitle = "Z.ai ?"
-                barTooltip = "No token quota in response."
-                quotaMenuLines = ["No TOKENS_LIMIT in API response."]
-                return
+                return (
+                    "Z:?",
+                    "Z.AI: no TOKENS_LIMIT in response.",
+                    ["Z.AI — no quota block in API response"]
+                )
             }
-
-            barTitle = "Z.ai \(primary.remainingPercent)%"
-            barTooltip = tooltip(for: summary)
-            quotaMenuLines = menuLines(from: summary)
+            return (
+                "Z:\(primary.remainingPercent)%",
+                tooltip(for: summary),
+                ["Z.AI"] + menuLines(from: summary)
+            )
         } catch {
-            barTitle = "Z.ai !"
-            barTooltip = error.localizedDescription
-            quotaMenuLines = ["Error: \(error.localizedDescription)"]
+            return (
+                "Z:!",
+                "Z.AI: \(error.localizedDescription)",
+                ["Z.AI — \(error.localizedDescription)"]
+            )
+        }
+    }
+
+    /// Claude Code / Max — OAuth session (same credentials as `claude` CLI after console sign-in).
+    private func fetchCCBlock() async -> (barFragment: String, tooltip: String, menuLines: [String]) {
+        do {
+            let pct = try await ClaudeCodeClient.fetchSessionRemainingPercent()
+            return (
+                "CC:\(pct)%",
+                "Claude Code: \(pct)% remaining in current 5h session (OAuth).",
+                ["Claude Code / Max — 5h session: \(pct)% remaining"]
+            )
+        } catch let e as ClaudeCodeClient.ClientError {
+            switch e {
+            case .noCredentialsFile, .noAccessToken:
+                return (
+                    "CC:—",
+                    "Claude Code: \(e.localizedDescription)",
+                    ["Claude Code — \(e.localizedDescription)"]
+                )
+            case .http, .decode, .network:
+                return (
+                    "CC:!",
+                    "Claude Code: \(e.localizedDescription)",
+                    ["Claude Code — \(e.localizedDescription)"]
+                )
+            }
+        } catch {
+            return (
+                "CC:!",
+                "Claude Code: \(error.localizedDescription)",
+                ["Claude Code — \(error.localizedDescription)"]
+            )
         }
     }
 

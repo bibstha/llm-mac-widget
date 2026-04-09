@@ -12,6 +12,11 @@ struct PreferencesView: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
+            Text("Claude Code / Max quota uses the same OAuth session as the `claude` CLI (~/.claude/.credentials.json or the Keychain item Claude Code uses). Optional: CLAUDE_CODE_OAUTH_TOKEN or CLAUDE_OAUTH_TOKEN in the environment.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
             Text("On macOS 26 (Tahoe), if the menu bar item is missing, open System Settings and search for “Menu Bar” or “Control Center” and ensure this app is allowed to show in the menu bar.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
