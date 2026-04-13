@@ -34,6 +34,19 @@ swift build -c release
 open LlmTokenWidget.app
 ```
 
+## Debug
+
+For a debug build under **lldb** (with optional unified **logs** or **Address Sanitizer**):
+
+```bash
+./scripts/run-debug.sh           # build + lldb (type `run` in lldb)
+./scripts/run-debug.sh logs      # second terminal: stream app logs
+./scripts/run-debug.sh asan       # ASan build + lldb (slow)
+./scripts/run-debug.sh --help
+```
+
+Crash reports may appear under `~/Library/Logs/DiagnosticReports/LlmTokenWidget-*.ips`.
+
 ## Credentials
 
 ### Z.AI
@@ -45,9 +58,11 @@ Or set **`ZAI_API_KEY`** or **`GLM_API_KEY`** in your environment instead (not s
 
 ### Claude Code / Max
 
-Sign in with the **`claude`** CLI (`claude login` or equivalent). The widget reads the same OAuth credentials as the CLI. If the menu shows **CC:—**, confirm `~/.claude/.credentials.json` exists and is readable, or that **Claude Code-credentials** appears in Keychain Access. You can also set **`CLAUDE_CODE_OAUTH_TOKEN`** (or **`CLAUDE_OAUTH_TOKEN`**) in the environment when launching the app from a shell — Finder-launched apps do not inherit shell exports.
+Sign in with the **`claude`** CLI (`claude login` or equivalent). The widget reads the same OAuth credentials as the CLI. If the menu shows **CC—**, confirm `~/.claude/.credentials.json` exists and is readable, or that **Claude Code-credentials** appears in Keychain Access. You can also set **`CLAUDE_CODE_OAUTH_TOKEN`** (or **`CLAUDE_OAUTH_TOKEN`**) in the environment when launching the app from a shell — Finder-launched apps do not inherit shell exports.
 
 ## Behaviour
 
-- Fetches **both** quotas on launch, then **every 5 minutes** (use **Refresh** in the menu anytime). The menu bar title shows **Z:** and **CC:** fragments (e.g. `Z:96% CC:85%`).
+- **Menu bar title** shows seconds until the next automatic refresh, then compact Z.AI and Claude Code fragments, for example **`55 Z80 CC90`** (no `:` or `%` in the title). The countdown is **refreshed every 5 seconds** in the UI (the actual auto-refresh still runs on schedule).
+- **Automatic refresh** runs on a timer: **every 5 minutes** by default. Enable **Refresh every 1 minute** in the menu (checkbox) for a 1-minute interval; the choice is persisted in **UserDefaults**.
+- Use **Refresh** in the menu anytime (⌘R). The dropdown lists token quota lines; there is no separate countdown line in the menu (the menu bar title is the main indicator).
 - On macOS 26 (Tahoe), launch the **`.app`** (`open`, Finder, or `./run.sh`). Avoid running the raw binary from Terminal and pressing **Ctrl+C**, which quits the app.

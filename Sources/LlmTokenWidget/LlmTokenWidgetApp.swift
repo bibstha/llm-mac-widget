@@ -38,7 +38,6 @@ struct LlmTokenWidgetApp: App {
 
             Divider()
 
-            // TimelineView for countdown avoids republishing the model every second (NSMenu highlight glitch).
             VStack(alignment: .leading, spacing: 6) {
                 Text("Token quota")
                     .font(.caption)
@@ -52,8 +51,6 @@ struct LlmTokenWidgetApp: App {
                         .multilineTextAlignment(.leading)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-
-                AutoRefreshCountdown(deadline: model.nextAutomaticRefreshAt)
             }
             .frame(maxWidth: 320, alignment: .leading)
             .focusable(false)
@@ -72,29 +69,12 @@ private struct MenuBarLabelView: View {
     @ObservedObject var model: QuotaModel
 
     var body: some View {
-        // One line so minimumScaleFactor shrinks everything together; split HStacks had one side clipped entirely.
-        Text("\(model.menuBarCountdownSeconds) \(model.barTitle)")
+        Text("\(model.autoRefreshRemainingSeconds) \(model.barTitle)")
             .font(.system(.caption, design: .default))
             .fontWeight(.semibold)
             .monospacedDigit()
             .lineLimit(1)
-            .minimumScaleFactor(0.45)
+            .minimumScaleFactor(0.5)
             .help(model.barTooltip)
-    }
-}
-
-private struct AutoRefreshCountdown: View {
-    var deadline: Date
-
-    var body: some View {
-        // `context.date` can lag after the menu is closed/reopened; use wall-clock remaining time.
-        TimelineView(.periodic(from: .now, by: 1.0)) { _ in
-            let totalSec = max(0, Int(deadline.timeIntervalSinceNow.rounded(.down)))
-            let m = totalSec / 60
-            let s = totalSec % 60
-            Text("Auto refresh in \(m):\(String(format: "%02d", s)) (\(totalSec)s)")
-                .font(.caption2)
-                .foregroundStyle(Color(nsColor: .secondaryLabelColor))
-        }
     }
 }

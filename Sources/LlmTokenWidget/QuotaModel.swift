@@ -23,18 +23,17 @@ final class QuotaModel: ObservableObject {
 
     /// Menu bar label, e.g. "Z85 CC86" (compact, no : or %).
     @Published private(set) var barTitle: String = "Z CC"
-    /// Seconds until next automatic refresh (e.g. 300, 299…), updated every second for the menu bar.
-    @Published private(set) var menuBarCountdownSeconds: Int = 0
+    /// Seconds until next automatic quota refresh; updated every 5s for the menu bar (not every second).
+    @Published private(set) var autoRefreshRemainingSeconds: Int = 0
     @Published private(set) var barTooltip: String = "Z.AI + Claude Code quota"
     /// Lines shown at the top of the menu (numbers / windows).
     @Published private(set) var quotaMenuLines: [String] = ["Open Preferences to set your API key."]
 
     private let client = QuotaClient()
     private var cancellables = Set<AnyCancellable>()
+    private var autoRefreshTask: Task<Void, Never>?
     private var nextAutoRefreshAt: Date
 
-    /// Next automatic quota fetch time (menu countdown reads this; it does not update every second).
-    var nextAutomaticRefreshAt: Date { nextAutoRefreshAt }
     private var isRefreshing = false
 
     init() {
@@ -52,30 +51,40 @@ final class QuotaModel: ObservableObject {
             )
         }
 
-        Timer.publish(every: 1, on: .main, in: .common)
+        Timer.publish(every: 5, on: .main, in: .common)
             .autoconnect()
             .sink { [weak self] _ in
-                self?.tick()
+                self?.updateAutoRefreshRemainingSeconds()
             }
             .store(in: &cancellables)
 
-        updateMenuBarCountdownSeconds()
+        updateAutoRefreshRemainingSeconds()
         Task { await refresh() }
     }
 
-    private func tick() {
-        updateMenuBarCountdownSeconds()
-        guard !isRefreshing, Date() >= nextAutoRefreshAt else { return }
-        Task { await refresh() }
-    }
-
-    private func updateMenuBarCountdownSeconds() {
-        menuBarCountdownSeconds = max(0, Int(nextAutoRefreshAt.timeIntervalSinceNow.rounded(.down)))
+    private func updateAutoRefreshRemainingSeconds() {
+        let sec = max(0, Int(nextAutoRefreshAt.timeIntervalSinceNow.rounded(.down)))
+        if sec != autoRefreshRemainingSeconds {
+            autoRefreshRemainingSeconds = sec
+        }
     }
 
     private func scheduleNextAutoRefresh() {
         nextAutoRefreshAt = Date().addingTimeInterval(autoRefreshIntervalSeconds)
-        updateMenuBarCountdownSeconds()
+        updateAutoRefreshRemainingSeconds()
+        autoRefreshTask?.cancel()
+        let deadline = nextAutoRefreshAt
+        autoRefreshTask = Task { [weak self] in
+            guard let self else { return }
+            let delay = max(0, deadline.timeIntervalSinceNow)
+            do {
+                try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            await self.refresh()
+        }
     }
 
     func refresh() async {
