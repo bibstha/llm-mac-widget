@@ -5,23 +5,42 @@ import Foundation
 
 @MainActor
 final class QuotaModel: ObservableObject {
-    /// Seconds between automatic quota fetches (also shown in the menu).
-    static let autoRefreshIntervalSeconds: TimeInterval = 300
+    private static let fastRefreshDefaultsKey = "LlmTokenWidget.useOneMinuteAutoRefresh"
 
-    /// Menu bar label, e.g. "Z:99% CC:85%"
+    /// When `true`, automatic quota refresh runs every 1 minute; when `false`, every 5 minutes (default).
+    @Published var useOneMinuteAutoRefresh: Bool = UserDefaults.standard.object(forKey: fastRefreshDefaultsKey) as? Bool ?? false {
+        didSet {
+            UserDefaults.standard.set(useOneMinuteAutoRefresh, forKey: Self.fastRefreshDefaultsKey)
+            if oldValue != useOneMinuteAutoRefresh {
+                scheduleNextAutoRefresh()
+            }
+        }
+    }
+
+    private var autoRefreshIntervalSeconds: TimeInterval {
+        useOneMinuteAutoRefresh ? 60 : 300
+    }
+
+    /// Menu bar label, e.g. "Z85 CC86" (compact, no : or %).
     @Published private(set) var barTitle: String = "Z CC"
+    /// Seconds until next automatic refresh (e.g. 300, 299…), updated every second for the menu bar.
+    @Published private(set) var menuBarCountdownSeconds: Int = 0
     @Published private(set) var barTooltip: String = "Z.AI + Claude Code quota"
     /// Lines shown at the top of the menu (numbers / windows).
     @Published private(set) var quotaMenuLines: [String] = ["Open Preferences to set your API key."]
-    /// Countdown until the next automatic fetch, e.g. "Auto refresh in 4:32 (272s)".
-    @Published private(set) var autoRefreshLabel: String = ""
 
     private let client = QuotaClient()
     private var cancellables = Set<AnyCancellable>()
-    private var nextAutoRefreshAt = Date().addingTimeInterval(300)
+    private var nextAutoRefreshAt: Date
+
+    /// Next automatic quota fetch time (menu countdown reads this; it does not update every second).
+    var nextAutomaticRefreshAt: Date { nextAutoRefreshAt }
     private var isRefreshing = false
 
     init() {
+        let interval: TimeInterval = UserDefaults.standard.object(forKey: Self.fastRefreshDefaultsKey) as? Bool == true ? 60 : 300
+        nextAutoRefreshAt = Date().addingTimeInterval(interval)
+
         NSApp.setActivationPolicy(.accessory)
 
         if isatty(STDIN_FILENO) != 0 {
@@ -40,26 +59,23 @@ final class QuotaModel: ObservableObject {
             }
             .store(in: &cancellables)
 
-        updateAutoRefreshLabel()
+        updateMenuBarCountdownSeconds()
         Task { await refresh() }
     }
 
     private func tick() {
-        updateAutoRefreshLabel()
+        updateMenuBarCountdownSeconds()
         guard !isRefreshing, Date() >= nextAutoRefreshAt else { return }
         Task { await refresh() }
     }
 
-    private func updateAutoRefreshLabel() {
-        let totalSec = max(0, Int(nextAutoRefreshAt.timeIntervalSinceNow.rounded(.down)))
-        let m = totalSec / 60
-        let s = totalSec % 60
-        autoRefreshLabel = "Auto refresh in \(m):\(String(format: "%02d", s)) (\(totalSec)s)"
+    private func updateMenuBarCountdownSeconds() {
+        menuBarCountdownSeconds = max(0, Int(nextAutoRefreshAt.timeIntervalSinceNow.rounded(.down)))
     }
 
     private func scheduleNextAutoRefresh() {
-        nextAutoRefreshAt = Date().addingTimeInterval(QuotaModel.autoRefreshIntervalSeconds)
-        updateAutoRefreshLabel()
+        nextAutoRefreshAt = Date().addingTimeInterval(autoRefreshIntervalSeconds)
+        updateMenuBarCountdownSeconds()
     }
 
     func refresh() async {
@@ -70,7 +86,7 @@ final class QuotaModel: ObservableObject {
             scheduleNextAutoRefresh()
         }
 
-        barTitle = "Z:… CC:…"
+        barTitle = "Z… CC…"
         barTooltip = "Loading…"
         quotaMenuLines = ["Loading quota…"]
 
@@ -87,7 +103,7 @@ final class QuotaModel: ObservableObject {
     private func fetchZBlock() async -> (barFragment: String, tooltip: String, menuLines: [String]) {
         guard let key = resolvedAPIKey(), !key.isEmpty else {
             return (
-                "Z:—",
+                "Z—",
                 "Z.AI: set API key in Preferences (or ZAI_API_KEY / GLM_API_KEY).",
                 ["Z.AI — no API key"]
             )
@@ -96,19 +112,19 @@ final class QuotaModel: ObservableObject {
             let summary = try await client.fetchQuota(apiKey: key)
             guard let primary = summary.primary else {
                 return (
-                    "Z:?",
+                    "Z?",
                     "Z.AI: no TOKENS_LIMIT in response.",
                     ["Z.AI — no quota block in API response"]
                 )
             }
             return (
-                "Z:\(primary.remainingPercent)%",
+                "Z\(primary.remainingPercent)",
                 tooltip(for: summary),
                 ["Z.AI"] + menuLines(from: summary)
             )
         } catch {
             return (
-                "Z:!",
+                "Z!",
                 "Z.AI: \(error.localizedDescription)",
                 ["Z.AI — \(error.localizedDescription)"]
             )
@@ -120,7 +136,7 @@ final class QuotaModel: ObservableObject {
         do {
             let pct = try await ClaudeCodeClient.fetchSessionRemainingPercent()
             return (
-                "CC:\(pct)%",
+                "CC\(pct)",
                 "Claude Code: \(pct)% remaining in current 5h session (OAuth).",
                 ["Claude Code / Max — 5h session: \(pct)% remaining"]
             )
@@ -128,13 +144,13 @@ final class QuotaModel: ObservableObject {
             switch e {
             case .noCredentialsFile, .noAccessToken:
                 return (
-                    "CC:—",
+                    "CC—",
                     "Claude Code: \(e.localizedDescription)",
                     ["Claude Code — \(e.localizedDescription)"]
                 )
             case .http, .decode, .network:
                 return (
-                    "CC:!",
+                    "CC!",
                     "Claude Code: \(e.localizedDescription)",
                     ["Claude Code — \(e.localizedDescription)"]
                 )
