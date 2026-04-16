@@ -35,6 +35,10 @@ final class QuotaModel: ObservableObject {
     private var nextAutoRefreshAt: Date
 
     private var isRefreshing = false
+    /// Last good Claude Code % from the OAuth usage API; used when the API returns HTTP 429 (heavy rate limits on `/api/oauth/usage`).
+    private var lastSuccessfulCCPercent: Int?
+    /// Same fetch as `lastSuccessfulCCPercent` — used to show a live “Resets in …” line when the latest request fails.
+    private var lastSuccessfulCCResetAt: Date?
 
     init() {
         let interval: TimeInterval = UserDefaults.standard.object(forKey: Self.fastRefreshDefaultsKey) as? Bool == true ? 60 : 300
@@ -129,7 +133,8 @@ final class QuotaModel: ObservableObject {
             return (
                 "Z\(primary.remainingPercent)",
                 tooltip(for: summary),
-                ["Z.AI"] + menuLines(from: summary)
+                [zaiQuotaMenuLine(percent: primary.remainingPercent, nextResetMs: primary.nextResetMs)]
+                    + zaiSupplementaryMenuLines(from: summary)
             )
         } catch {
             return (
@@ -143,11 +148,18 @@ final class QuotaModel: ObservableObject {
     /// Claude Code / Max — OAuth session (same credentials as `claude` CLI after console sign-in).
     private func fetchCCBlock() async -> (barFragment: String, tooltip: String, menuLines: [String]) {
         do {
-            let pct = try await ClaudeCodeClient.fetchSessionRemainingPercent()
+            let usage = try await ClaudeCodeClient.fetchSessionUsage()
+            lastSuccessfulCCPercent = usage.remainingPercent
+            lastSuccessfulCCResetAt = usage.resetsAt
+            let resetTooltip = usage.resetsAt.map { "Next window reset: \(formatResetClock($0))." } ?? ""
+            let tooltipBody =
+                "Claude Code: \(usage.remainingPercent)% remaining in current 5h session (OAuth)."
+                    + (resetTooltip.isEmpty ? "" : " \(resetTooltip)")
+            let lines = [claudeQuotaMenuLine(percent: usage.remainingPercent, resetsAt: usage.resetsAt, isStale: false)]
             return (
-                "CC\(pct)",
-                "Claude Code: \(pct)% remaining in current 5h session (OAuth).",
-                ["Claude Code / Max — 5h session: \(pct)% remaining"]
+                "CC\(usage.remainingPercent)",
+                tooltipBody,
+                lines
             )
         } catch let e as ClaudeCodeClient.ClientError {
             switch e {
@@ -158,6 +170,16 @@ final class QuotaModel: ObservableObject {
                     ["Claude Code — \(e.localizedDescription)"]
                 )
             case .http, .decode, .network:
+                // Usage API is rate-limited and flaky; keep showing the last good % instead of a useless CC!.
+                if let last = lastSuccessfulCCPercent {
+                    let lines = [claudeQuotaMenuLine(percent: last, resetsAt: lastSuccessfulCCResetAt, isStale: true)]
+                    let resetHint = lastSuccessfulCCResetAt.map { " Last known reset: \(formatResetClock($0))." } ?? ""
+                    return (
+                        "CC\(last)",
+                        "Claude Code: \(last)% (last successful fetch). Could not refresh: \(e.localizedDescription).\(resetHint)",
+                        lines
+                    )
+                }
                 return (
                     "CC!",
                     "Claude Code: \(e.localizedDescription)",
@@ -165,32 +187,40 @@ final class QuotaModel: ObservableObject {
                 )
             }
         } catch {
+            if let last = lastSuccessfulCCPercent {
+                let lines = [claudeQuotaMenuLine(percent: last, resetsAt: lastSuccessfulCCResetAt, isStale: true)]
+                let resetHint = lastSuccessfulCCResetAt.map { " Last known reset: \(formatResetClock($0))." } ?? ""
+                return (
+                    "CC\(last)",
+                    "Claude Code: \(last)% (last successful fetch). Could not refresh: \(error.localizedDescription).\(resetHint)",
+                    lines
+                )
+            }
             return (
-                "CC:!",
+                "CC!",
                 "Claude Code: \(error.localizedDescription)",
                 ["Claude Code — \(error.localizedDescription)"]
             )
         }
     }
 
-    private func menuLines(from summary: QuotaSummary) -> [String] {
-        var lines: [String] = []
-        if let w = summary.weekly {
-            lines.append(
-                "7-day: \(w.remainingPercent)% left · \(formatTokens(w.remaining)) tokens remaining "
-                    + "(used \(w.usedPercent)% of \(formatTokens(w.usageTotal)) cap)"
-            )
+    /// Extra token-cap lines when both weekly and 5-hour limits exist (the compact line already reflects `primary` = weekly).
+    private func zaiSupplementaryMenuLines(from summary: QuotaSummary) -> [String] {
+        guard summary.weekly != nil, let session = summary.session else { return [] }
+        return [
+            "5-hour: \(session.remainingPercent)% left · \(formatTokens(session.remaining)) tokens remaining "
+                + "(used \(session.usedPercent)% of \(formatTokens(session.usageTotal)) cap)"
+        ]
+    }
+
+    /// Matches Claude: `Z 78% remaining, Resets in 4:20` using `nextResetTime` from the quota API.
+    private func zaiQuotaMenuLine(percent: Int, nextResetMs: Int64?) -> String {
+        var s = "Z \(percent)% remaining"
+        if let ms = nextResetMs {
+            let date = Date(timeIntervalSince1970: TimeInterval(ms) / 1000)
+            s += ", Resets in \(formatResetHoursMinutes(to: date))"
         }
-        if let s = summary.session {
-            lines.append(
-                "5-hour: \(s.remainingPercent)% left · \(formatTokens(s.remaining)) tokens remaining "
-                    + "(used \(s.usedPercent)% of \(formatTokens(s.usageTotal)) cap)"
-            )
-        }
-        if lines.isEmpty {
-            lines.append("No token windows returned.")
-        }
-        return lines
+        return s
     }
 
     func preferencesDidSave() {
@@ -221,6 +251,34 @@ final class QuotaModel: ObservableObject {
         f.dateStyle = .short
         f.timeStyle = .short
         return " · next reset \(f.string(from: date))"
+    }
+
+    /// Same clock style as Z.AI reset hints, for Claude OAuth `resets_at`.
+    private func formatResetClock(_ date: Date) -> String {
+        let f = DateFormatter()
+        f.dateStyle = .short
+        f.timeStyle = .short
+        return f.string(from: date)
+    }
+
+    /// Single menu line: `Claude 78% remaining, Resets in 4:20` (or `(stale)` when the last fetch failed).
+    private func claudeQuotaMenuLine(percent: Int, resetsAt: Date?, isStale: Bool) -> String {
+        var s = "Claude \(percent)% remaining"
+        if let r = resetsAt {
+            s += ", Resets in \(formatResetHoursMinutes(to: r))"
+        }
+        if isStale {
+            s += " (stale)"
+        }
+        return s
+    }
+
+    /// Countdown until OAuth window reset, `H:MM` (minutes zero-padded).
+    private func formatResetHoursMinutes(to reset: Date) -> String {
+        let seconds = max(0, Int(reset.timeIntervalSinceNow.rounded(.down)))
+        let hours = seconds / 3600
+        let minutes = (seconds % 3600) / 60
+        return String(format: "%d:%02d", hours, minutes)
     }
 
     private func formatTokens(_ n: Int64) -> String {

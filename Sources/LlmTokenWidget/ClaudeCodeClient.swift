@@ -7,6 +7,12 @@ import Foundation
 /// `CLAUDE_CODE_OAUTH_TOKEN` / `CLAUDE_OAUTH_TOKEN`.
 /// Community-documented endpoint — may change without notice.
 enum ClaudeCodeClient {
+    /// 5h (or 7-day fallback) session remaining % and optional reset time from the same `/api/oauth/usage` payload.
+    struct SessionUsage: Equatable {
+        let remainingPercent: Int
+        let resetsAt: Date?
+    }
+
     enum ClientError: LocalizedError {
         /// `path` is the absolute path we tried (helps debug wrong home dir from GUI apps).
         case noCredentialsFile(path: String, detail: String)
@@ -31,7 +37,7 @@ enum ClaudeCodeClient {
     /// Same service name as Claude Code / ClaudeBar (`security find-generic-password -s …`).
     private static let claudeCodeKeychainService = "Claude Code-credentials"
 
-    static func fetchSessionRemainingPercent() async throws -> Int {
+    static func fetchSessionUsage() async throws -> SessionUsage {
         let token = try loadOAuthToken()
         var request = URLRequest(url: Self.usageURL)
         request.httpMethod = "GET"
@@ -56,12 +62,59 @@ enum ClaudeCodeClient {
             throw ClientError.http(http.statusCode)
         }
 
-        let decoded = try? JSONDecoder().decode(OAuthUsageResponse.self, from: data)
-        guard let util = decoded?.fiveHour?.utilization else {
+        return try sessionUsageFromUsageJSON(data)
+    }
+
+    /// Parses `five_hour` / `seven_day` utilization and matching `resets_at`; tolerates Int or Double and minor shape drift.
+    private static func sessionUsageFromUsageJSON(_ data: Data) throws -> SessionUsage {
+        if let decoded = try? JSONDecoder().decode(OAuthUsageResponse.self, from: data) {
+            if let w = decoded.fiveHour, let u = w.utilization {
+                return makeSessionUsage(utilization: u, resetsAtString: w.resetsAt)
+            }
+            if let w = decoded.sevenDay, let u = w.utilization {
+                return makeSessionUsage(utilization: u, resetsAtString: w.resetsAt)
+            }
+        }
+        guard let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw ClientError.decode
         }
-        let remaining = 100.0 - util
-        return max(0, min(100, Int(remaining.rounded())))
+        func window(_ key: String) -> (util: Double?, resetsAt: String?) {
+            guard let w = obj[key] as? [String: Any] else { return (nil, nil) }
+            let u: Double?
+            if let d = w["utilization"] as? Double {
+                u = d
+            } else if let i = w["utilization"] as? Int {
+                u = Double(i)
+            } else {
+                u = nil
+            }
+            let r = w["resets_at"] as? String
+            return (u, r)
+        }
+        let five = window("five_hour")
+        if let util = five.util {
+            return makeSessionUsage(utilization: util, resetsAtString: five.resetsAt)
+        }
+        let seven = window("seven_day")
+        if let util = seven.util {
+            return makeSessionUsage(utilization: util, resetsAtString: seven.resetsAt)
+        }
+        throw ClientError.decode
+    }
+
+    private static func makeSessionUsage(utilization: Double, resetsAtString: String?) -> SessionUsage {
+        let remaining = 100.0 - utilization
+        let pct = max(0, min(100, Int(remaining.rounded())))
+        let at = resetsAtString.flatMap { parseResetsAt($0) }
+        return SessionUsage(remainingPercent: pct, resetsAt: at)
+    }
+
+    private static func parseResetsAt(_ iso: String) -> Date? {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let d = f.date(from: iso) { return d }
+        f.formatOptions = [.withInternetDateTime]
+        return f.date(from: iso)
     }
 
     private static func loadOAuthToken() throws -> String {
@@ -174,9 +227,11 @@ private struct OAuthBlob: Decodable {
 
 private struct OAuthUsageResponse: Decodable {
     let fiveHour: WindowUsage?
+    let sevenDay: WindowUsage?
 
     enum CodingKeys: String, CodingKey {
         case fiveHour = "five_hour"
+        case sevenDay = "seven_day"
     }
 }
 
@@ -187,5 +242,17 @@ private struct WindowUsage: Decodable {
     enum CodingKeys: String, CodingKey {
         case utilization
         case resetsAt = "resets_at"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        if let d = try? c.decodeIfPresent(Double.self, forKey: .utilization) {
+            utilization = d
+        } else if let i = try? c.decodeIfPresent(Int.self, forKey: .utilization) {
+            utilization = Double(i)
+        } else {
+            utilization = nil
+        }
+        resetsAt = try c.decodeIfPresent(String.self, forKey: .resetsAt)
     }
 }

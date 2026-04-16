@@ -38,22 +38,32 @@ struct LlmTokenWidgetApp: App {
 
             Divider()
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Token quota")
-                    .font(.caption)
-                    .fontWeight(.semibold)
-                    .foregroundStyle(Color(nsColor: .labelColor))
-
+            // Plain `Text` in a menu is drawn like secondary chrome; use inert `Button`s so AppKit
+            // applies normal menu-item label color (same as “Refresh”, etc.).
+            Section {
                 ForEach(Array(model.quotaMenuLines.enumerated()), id: \.offset) { _, line in
-                    Text(line)
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(Color(nsColor: .labelColor))
-                        .multilineTextAlignment(.leading)
-                        .fixedSize(horizontal: false, vertical: true)
+                    Button(action: {}) {
+                        Text(line)
+                            .font(.system(.body, design: .monospaced))
+                            .foregroundStyle(Color(nsColor: .labelColor))
+                            .multilineTextAlignment(.leading)
+                            .frame(maxWidth: 320, alignment: .leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .buttonStyle(.plain)
+                    .allowsHitTesting(false)
                 }
+            } header: {
+                Button(action: {}) {
+                    Text("Token quota")
+                        .font(.body)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(Color(nsColor: .labelColor))
+                        .frame(maxWidth: 320, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+                .allowsHitTesting(false)
             }
-            .frame(maxWidth: 320, alignment: .leading)
-            .focusable(false)
         }, label: {
             MenuBarLabelView(model: model)
         })
